@@ -9,19 +9,19 @@ namespace Client.Repositories
 {
     class TickerRepository : ITickerRepository
     {
-        private readonly ITickerClient tickerClient;
-        private readonly ITickerFactory tickerFactory;
+        private readonly ITickerClient _tickerClient;
+        private readonly ITickerFactory _tickerFactory;
 
         public TickerRepository(ITickerClient tickerClient, ITickerFactory tickerFactory)
         {
-            this.tickerClient = tickerClient;
-            this.tickerFactory = tickerFactory;
+            this._tickerClient = tickerClient;
+            this._tickerFactory = tickerFactory;
         }
 
         public IObservable<Ticker> GetTickerStream()
         {
-            return Observable.Defer(() => tickerClient.GetTickerStream())
-                .Select(tickerFactory.Create)                
+            return Observable.Defer(() => _tickerClient.GetTickerStream())
+                .Select(_tickerFactory.Create)                
                 .Catch<Ticker>(Observable.Empty<Ticker>())
                 .Repeat()
                 .Publish()

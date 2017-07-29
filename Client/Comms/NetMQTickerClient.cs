@@ -1,44 +1,36 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using Client.Comms.Transport;
+using Common;
+using NetMQ;
+using NetMQ.Sockets;
+using Newtonsoft.Json;
+using System;
 using System.Linq;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
-using System.Text;
 using System.Threading.Tasks;
-using Client.Factory;
-using Client.Comms.Transport;
-using Common;
-using NetMQ;
-using NetMQ.Actors;
-using NetMQ.InProcActors;
-using NetMQ.Sockets;
-using NetMQ.zmq;
-using Newtonsoft.Json;
-using Poller = NetMQ.Poller;
 
 namespace Client.Comms
 {
     public class NetMQTickerClient : IDisposable
     {
-        private Actor<object> actor;
+        //private Actor<object> actor;
+        private readonly NetMQActor _actor;
         private Subject<TickerDto> subject;
-        private CompositeDisposable disposables = new CompositeDisposable();
+        private readonly CompositeDisposable _disposables = new CompositeDisposable();
 
-        class ShimHandler : IShimHandler<object>
+        class ShimHandler : IShimHandler
         {
-            private NetMQContext context;
-            private SubscriberSocket subscriberSocket;
-            private Subject<TickerDto> subject;
-            private string address;
-            private Poller poller;
-            private NetMQTimer timeoutTimer;
+            private SubscriberSocket _subscriberSocket;
+            private Subject<TickerDto> _subject;
+            private readonly string _address;
+            private NetMQPoller _poller;
+            private NetMQTimer _timeoutTimer;
 
-            public ShimHandler(NetMQContext context, Subject<TickerDto> subject, string address)
+            public ShimHandler(Subject<TickerDto> subject, string address)
             {
-                this.context = context;
-                this.address = address;
-                this.subject = subject;
+                this._address = address;
+                this._subject = subject;
             }
 
             public void Initialise(object state)
@@ -46,53 +38,45 @@ namespace Client.Comms
 
             }
 
-            public void RunPipeline(PairSocket shim)
+            public void Run(PairSocket shim)
             {
                 // we should signal before running the poller but this will block the application
                 shim.SignalOK();
 
-                this.poller = new Poller();
+                _poller = new NetMQPoller();
 
                 shim.ReceiveReady += OnShimReady;
-                poller.AddSocket(shim);
+                _poller.Add(shim);
 
-                timeoutTimer = new NetMQTimer(StreamingProtocol.Timeout);
-                timeoutTimer.Elapsed += TimeoutElapsed;
-                poller.AddTimer(timeoutTimer);
+                _timeoutTimer = new NetMQTimer(StreamingProtocol.Timeout);
+                _timeoutTimer.Elapsed += TimeoutElapsed;
+                _poller.Add(_timeoutTimer);
 
                 Connect();
 
-                poller.Start();
+                _poller.Run();
 
-                if (subscriberSocket != null)
+                if (_subscriberSocket != null)
                 {
-                    subscriberSocket.Dispose();
+                    _subscriberSocket.Dispose();
                 }
             }
 
             private void Connect()
             {
                 // getting the snapshot
-                using (RequestSocket requestSocket = context.CreateRequestSocket())
+                using (var requestSocket = new RequestSocket())
                 {
 
-                    requestSocket.Connect(string.Format("tcp://{0}:{1}", address, SnapshotProtocol.Port));
+                    requestSocket.Connect(string.Format("tcp://{0}:{1}", _address, SnapshotProtocol.Port));
 
-                    requestSocket.Send(SnapshotProtocol.GetTradessCommand);
+                    requestSocket.SendFrame(SnapshotProtocol.GetTradessCommand);
 
-                    string json;
+                    var json = string.Empty;
 
-                    requestSocket.Options.ReceiveTimeout = SnapshotProtocol.RequestTimeout;
-
-                    try
+                    if (requestSocket.TryReceiveFrameString(SnapshotProtocol.RequestTimeout, out json) == false)
                     {
-                        json = requestSocket.ReceiveString();
-                    }
-                    catch (AgainException ex)
-                    {
-                        // Fail to receive trades, we call on error and don't try to do anything with subscriber
-                        // calling on error from poller thread block the application
-                        Task.Run(() => subject.OnError(new Exception("No response from server")));
+                        Task.Run(() => _subject.OnError(new Exception("No response from server")));
                         return;
                     }
 
@@ -100,21 +84,22 @@ namespace Client.Comms
                     {
                         PublishTicker(json);
 
-                        json = requestSocket.ReceiveString();
+                        json = requestSocket.ReceiveFrameString();
                     }
                 }
 
-                subscriberSocket = context.CreateSubscriberSocket();
-                subscriberSocket.Subscribe(StreamingProtocol.TradesTopic);
-                subscriberSocket.Subscribe(StreamingProtocol.HeartbeatTopic);
-                subscriberSocket.Connect(string.Format("tcp://{0}:{1}", address, StreamingProtocol.Port));
-                subscriberSocket.ReceiveReady += OnSubscriberReady;
+                //subscriberSocket = context.CreateSubscriberSocket();
+                _subscriberSocket = new SubscriberSocket();
+                _subscriberSocket.Subscribe(StreamingProtocol.TradesTopic);
+                _subscriberSocket.Subscribe(StreamingProtocol.HeartbeatTopic);
+                _subscriberSocket.Connect(string.Format("tcp://{0}:{1}", _address, StreamingProtocol.Port));
+                _subscriberSocket.ReceiveReady += OnSubscriberReady;
 
-                poller.AddSocket(subscriberSocket);
+                _poller.Add(_subscriberSocket);
 
                 // reset timeout timer
-                timeoutTimer.Enable = false;
-                timeoutTimer.Enable = true;
+                _timeoutTimer.Enable = false;
+                _timeoutTimer.Enable = true;
             }
 
             private void TimeoutElapsed(object sender, NetMQTimerEventArgs e)
@@ -122,55 +107,56 @@ namespace Client.Comms
                 // no need to reconnect, the client would be recreated because of RX
 
                 // because of RX internal stuff invoking on the poller thread block the entire application, so calling on Thread Pool
-                Task.Run(() => subject.OnError(new Exception("Disconnected from server")));
+                Task.Run(() => _subject.OnError(new Exception("Disconnected from server")));
             }
 
             private void OnShimReady(object sender, NetMQSocketEventArgs e)
             {
-                string command = e.Socket.ReceiveString();
+                var command = e.Socket.ReceiveFrameString();
 
-                if (command == ActorKnownMessages.END_PIPE)
+                if(command==NetMQActor.EndShimMessage)
+                //if (command == ActorKnownMessages.END_PIPE)
                 {
-                    poller.Stop(false);
+                    _poller.Stop();
                 }
             }
 
             private void OnSubscriberReady(object sender, NetMQSocketEventArgs e)
             {
-                string topic = subscriberSocket.ReceiveString();
+                var topic = _subscriberSocket.ReceiveFrameString();
 
                 if (topic == StreamingProtocol.TradesTopic)
                 {
-                    string json = subscriberSocket.ReceiveString();
+                    var json = _subscriberSocket.ReceiveFrameString();
                     PublishTicker(json);
 
                     // reset timeout timer also when a quote is received
-                    timeoutTimer.Enable = false;
-                    timeoutTimer.Enable = true;
+                    _timeoutTimer.Enable = false;
+                    _timeoutTimer.Enable = true;
                 }
                 else if (topic == StreamingProtocol.HeartbeatTopic)
                 {
                     // reset timeout timer
-                    timeoutTimer.Enable = false;
-                    timeoutTimer.Enable = true;
+                    _timeoutTimer.Enable = false;
+                    _timeoutTimer.Enable = true;
                 }
             }
 
             private void PublishTicker(string json)
             {
                 TickerDto tickerDto = JsonConvert.DeserializeObject<TickerDto>(json);
-                subject.OnNext(tickerDto);
+                _subject.OnNext(tickerDto);
             }
         }
 
-        public NetMQTickerClient(NetMQContext context, string address)
+        public NetMQTickerClient(string address)
         {
             subject = new Subject<TickerDto>();
 
-            this.actor = new Actor<object>(context, new ShimHandler(context, subject, address), null);
-            this.disposables.Add(this.actor);
+            _actor = NetMQActor.Create(new ShimHandler(subject, address));
+            _disposables.Add(this._actor);
 
-            this.disposables.Add(NetMQHeartBeatClient.Instance.GetConnectionStatusStream()
+            _disposables.Add(NetMQHeartBeatClient.Instance.GetConnectionStatusStream()
                 .Where(x => x.ConnectionStatus == ConnectionStatus.Closed)
                 .Subscribe(x =>
                     this.subject.OnError(new InvalidOperationException("Connection to server has been lost"))));
@@ -183,7 +169,7 @@ namespace Client.Comms
 
         public void Dispose()
         {
-            this.disposables.Dispose();
+            _disposables.Dispose();
         }
     }
 }

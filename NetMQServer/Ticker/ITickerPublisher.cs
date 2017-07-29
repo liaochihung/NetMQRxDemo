@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Common;
+﻿using Common;
 
 namespace NetMQServer.Ticker
 {
@@ -11,7 +6,6 @@ namespace NetMQServer.Ticker
     {
         void Start();
         void Stop();
-        void PublishTrade(TickerDto ticker);   
-     
+        void PublishTrade(TickerDto ticker);
     }
 }

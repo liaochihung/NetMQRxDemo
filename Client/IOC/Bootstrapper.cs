@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Autofac;
-using Client.Factory;
+﻿using Autofac;
 using Client.Services;
 using Client.ViewModels;
 using Client.ViewModels.MainWindow;
@@ -17,11 +11,9 @@ namespace Client.IOC
         {
             var builder = new ContainerBuilder();
 
-
             builder.RegisterType<ReactiveTrader>().As<IReactiveTrader>().SingleInstance();
             builder.RegisterType<UserProvider>().As<IUserProvider>();
             builder.RegisterType<ConcurrencyService>().As<IConcurrencyService>();
-
 
             // UI
             builder.RegisterType<MainWindow>().SingleInstance();
@@ -29,7 +21,6 @@ namespace Client.IOC
             builder.RegisterType<TickersViewModel>().SingleInstance();
             builder.RegisterType<ConnectivityStatusViewModel>().SingleInstance();
             builder.RegisterType<TickerViewModelFactory>().SingleInstance();
-
 
             return builder.Build();
         }

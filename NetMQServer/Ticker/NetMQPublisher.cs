@@ -1,37 +1,25 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Navigation;
-using Common;
+﻿using Common;
 using NetMQ;
-using NetMQ.Actors;
-using NetMQ.InProcActors;
 using NetMQ.Sockets;
-using NetMQ.zmq;
 using Newtonsoft.Json;
-using Poller = NetMQ.Poller;
 
 namespace NetMQServer.Ticker
 {
     public class NetMQPublisher : ITickerPublisher
     {
-        private const string PublishTicker = "P";        
+        private const string PublishTicker = "P";
 
-        public class ShimHandler : IShimHandler<object>
+        public class ShimHandler : IShimHandler
         {
-            private readonly NetMQContext context;
-            private PublisherSocket publisherSocket;
-            private ResponseSocket snapshotSocket;
-            private ITickerRepository tickerRepository;
-            private Poller poller;
-            private NetMQTimer heartbeatTimer;
+            private PublisherSocket _publisherSocket;
+            private ResponseSocket _snapshotSocket;
+            private readonly ITickerRepository tickerRepository;
+            private NetMQPoller _poller;
+            private NetMQTimer _heartbeatTimer;
 
-            public ShimHandler(NetMQContext context, ITickerRepository tickerRepository)
+            public ShimHandler(ITickerRepository tickerRepository)
             {
-                this.context = context;
-                this.tickerRepository = tickerRepository;                
+                this.tickerRepository = tickerRepository;
             }
 
             public void Initialise(object state)
@@ -39,114 +27,111 @@ namespace NetMQServer.Ticker
 
             }
 
-            public void RunPipeline(PairSocket shim)
+            public void Run(PairSocket shim)
             {
-                publisherSocket = context.CreatePublisherSocket();
-                publisherSocket.Bind("tcp://*:" + StreamingProtocol.Port);
+                _publisherSocket = new PublisherSocket();
+                _publisherSocket.Bind("tcp://*:" + StreamingProtocol.Port);
 
-                snapshotSocket = context.CreateResponseSocket();
-                snapshotSocket.Bind("tcp://*:" + SnapshotProtocol.Port);
-                snapshotSocket.ReceiveReady += OnSnapshotReady;
-                
+                _snapshotSocket = new ResponseSocket();
+                _snapshotSocket.Bind("tcp://*:" + SnapshotProtocol.Port);
+                _snapshotSocket.ReceiveReady += OnSnapshotReady;
+
                 shim.ReceiveReady += OnShimReady;
 
-                heartbeatTimer = new NetMQTimer(StreamingProtocol.HeartbeatInterval);
-                heartbeatTimer.Elapsed += OnHeartbeatTimerElapsed;
+                _heartbeatTimer = new NetMQTimer(StreamingProtocol.HeartbeatInterval);
+                _heartbeatTimer.Elapsed += OnHeartbeatTimerElapsed;
 
                 shim.SignalOK();
 
-                poller = new Poller();
-                poller.AddSocket(shim);
-                poller.AddSocket(snapshotSocket);
-                poller.AddTimer(heartbeatTimer);
-                poller.Start();
+                _poller = new NetMQPoller() { shim, _snapshotSocket, _heartbeatTimer };
+                _poller.Run();
 
-                publisherSocket.Dispose();
-                snapshotSocket.Dispose();
+                _publisherSocket.Dispose();
+                _snapshotSocket.Dispose();
             }
 
             private void OnHeartbeatTimerElapsed(object sender, NetMQTimerEventArgs e)
             {
-                publisherSocket.Send(StreamingProtocol.HeartbeatTopic);
+                _publisherSocket.SendFrame(StreamingProtocol.HeartbeatTopic);
             }
 
             private void OnSnapshotReady(object sender, NetMQSocketEventArgs e)
-            {                
-                string command = snapshotSocket.ReceiveString();
+            {
+                var command = _snapshotSocket.ReceiveFrameString();
 
                 // Currently we only have one type of events
-                if (command == SnapshotProtocol.GetTradessCommand)
+                if (command != SnapshotProtocol.GetTradessCommand)
+                    return;
+
+                var tickers = tickerRepository.GetAllTickers();
+
+                // we will send all the tickers in one message
+                foreach (var ticker in tickers)
                 {
-                    var tickers = tickerRepository.GetAllTickers();
-
-                    // we will send all the tickers in one message
-                    foreach (var ticker in tickers)
-                    {
-                        snapshotSocket.SendMore(JsonConvert.SerializeObject(ticker));
-                    }
-
-                    snapshotSocket.Send(SnapshotProtocol.EndOfTickers);
+                    _snapshotSocket.SendMoreFrame(JsonConvert.SerializeObject(ticker));
                 }
+
+                _snapshotSocket.SendFrame(SnapshotProtocol.EndOfTickers);
             }
 
             private void OnShimReady(object sender, NetMQSocketEventArgs e)
             {
-   
-                string command = e.Socket.ReceiveString();
+                var command = e.Socket.ReceiveFrameString();
 
                 switch (command)
                 {
-                    case ActorKnownMessages.END_PIPE:
-                        poller.Stop(false);
+                    //case ActorKnownMessages.END_PIPE:
+                    case NetMQActor.EndShimMessage:
+                        _poller.Stop();
                         break;
+
                     case PublishTicker:
-                        string topic = e.Socket.ReceiveString();
-                        string json = e.Socket.ReceiveString();
-                        publisherSocket.
-                            SendMore(topic).
-                            Send(json);
+                        var topic = e.Socket.ReceiveFrameString();
+                        var json = e.Socket.ReceiveFrameString();
+
+                        _publisherSocket.
+                            SendMoreFrame(topic).
+                            SendFrame(json);
                         break;
                 }
 
             }
         }
 
-        private Actor<object> actor;
-        private readonly NetMQContext context;
-        private readonly ITickerRepository tickerRepository;
-                    
-        public NetMQPublisher(NetMQContext context, ITickerRepository tickerRepository)
+        private NetMQActor _actor;
+        private readonly ITickerRepository _tickerRepository;
+
+        public NetMQPublisher(ITickerRepository tickerRepository)
         {
-            this.context = context;
-            this.tickerRepository = tickerRepository;        
+            _tickerRepository = tickerRepository;
         }
 
         public void Start()
         {
-            if (actor != null)
+            if (_actor != null)
                 return;
 
-            actor = new Actor<object>(context, new ShimHandler(context, tickerRepository), null);
+            _actor = NetMQActor.Create(new ShimHandler(_tickerRepository));
         }
 
         public void Stop()
         {
-            if (actor != null)
+            if (_actor != null)
             {
-                actor.Dispose();
-                actor = null;
+                _actor.Dispose();
+                _actor = null;
             }
-        }        
+        }
 
         public void PublishTrade(TickerDto ticker)
         {
-            if (actor == null)
+            if (_actor == null)
                 return;
 
-            actor.
-                SendMore(PublishTicker).
-                SendMore(StreamingProtocol.TradesTopic).
-                Send(JsonConvert.SerializeObject(ticker));                
+            _actor.
+                SendMoreFrame(PublishTicker).
+                SendMoreFrame(StreamingProtocol.TradesTopic).
+                SendFrame(JsonConvert.SerializeObject(ticker));
         }
 
     }

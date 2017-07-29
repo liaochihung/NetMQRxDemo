@@ -1,35 +1,25 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using Common;
+using System;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Client.Comms.Transport;
-using Common;
-using NetMQ;
 
 namespace Client.Comms
 {
     public class TickerClient : ITickerClient
     {
-        private readonly NetMQContext context;
-        private readonly string address;
+        private readonly string _address;
 
-        public TickerClient(NetMQContext context, string address)
+        public TickerClient(string address)
         {
-            this.context = context;
-            this.address = address;
+            _address = address;
         }
 
         public IObservable<TickerDto> GetTickerStream()
         {
             return Observable.Create<TickerDto>(observer =>
             {
-                NetMQTickerClient client = new NetMQTickerClient(context, address);
+                var client = new NetMQTickerClient(_address);
 
-
-               
                 var disposable = client.GetTickerStream().Subscribe(observer);
                 return new CompositeDisposable { client, disposable };
             })
@@ -38,17 +28,17 @@ namespace Client.Comms
         }
 
 
-        public IObservable<ConnectionInfo> ConnectionStatusStream()
-        {
-            return Observable.Create<ConnectionInfo>(observer =>
-            {
-                NetMQHeartBeatClient.Instance.InitialiseComms();
+        //public IObservable<ConnectionInfo> ConnectionStatusStream()
+        //{
+        //    return Observable.Create<ConnectionInfo>(observer =>
+        //    {
+        //        NetMQHeartBeatClient.Instance.InitialiseComms();
 
-                var disposable = NetMQHeartBeatClient.Instance.GetConnectionStatusStream().Subscribe(observer);
-                return new CompositeDisposable { disposable };
-            })
-            .Publish()
-            .RefCount();
-        }
+        //        var disposable = NetMQHeartBeatClient.Instance.GetConnectionStatusStream().Subscribe(observer);
+        //        return new CompositeDisposable { disposable };
+        //    })
+        //    .Publish()
+        //    .RefCount();
+        //}
     }
 }

@@ -12,84 +12,77 @@ namespace Client.ViewModels
 {
     public class TickerViewModel : INPCBase
     {
-        private decimal price;
-        private bool isUp;
-        private bool stale;
-        private bool disconnected;
-        private static readonly ILog log = LogManager.GetLogger(typeof(TickerViewModel));
-
+        private decimal _price;
+        private bool _isUp;
+        private bool _stale;
+        private bool _disconnected;
+        private static readonly ILog Log = LogManager.GetLogger(typeof(TickerViewModel));
 
         public TickerViewModel(
             IReactiveTrader reactiveTrader,
             IConcurrencyService concurrencyService,
             string name)
         {
-
-            this.Name = name;
+            Name = name;
 
             reactiveTrader.ConnectionStatusStream
                 .ObserveOn(concurrencyService.Dispatcher)
                 .SubscribeOn(concurrencyService.TaskPool)
                 .Subscribe(
                     OnStatusChange,
-                    ex => log.Error("An error occurred within the connection status stream.", ex));
+                    ex => Log.Error("An error occurred within the connection status stream.", ex));
         }
-
 
         public string Name { get; private set; }
 
-
         public void AcceptNewPrice(decimal newPrice)
         {
-            IsUp = newPrice > price;
+            IsUp = newPrice > _price;
             Price = newPrice;
         }
 
-
         public decimal Price
         {
-            get { return this.price; }
+            get { return _price; }
             private set
             {
-                this.price = value;
+                _price = value;
                 base.OnPropertyChanged("Price");
             }
         }
 
         public bool IsUp
         {
-            get { return this.isUp; }
+            get { return _isUp; }
             private set
             {
-                this.isUp = value;
+                _isUp = value;
                 base.OnPropertyChanged("IsUp");
             }
         }
 
         public bool Stale
         {
-            get { return this.stale; }
+            get { return _stale; }
             set
             {
-                this.stale = value;
+                _stale = value;
                 base.OnPropertyChanged("Stale");
             }
         } 
         
         public bool Disconnected
         {
-            get { return this.disconnected; }
+            get { return _disconnected; }
             set
             {
-                this.disconnected = value;
+                _disconnected = value;
                 base.OnPropertyChanged("Disconnected");
             }
         }
 
-
         private void OnStatusChange(ConnectionInfo connectionInfo)
         {
-
             switch (connectionInfo.ConnectionStatus)
             {
                 case ConnectionStatus.Connecting:

@@ -1,43 +1,39 @@
-﻿using System;
+﻿using Common;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Common;
 
 namespace NetMQServer.Ticker
 {
-   public class TickerRepository : ITickerRepository
+    public class TickerRepository : ITickerRepository
     {
-       private readonly Queue<TickerDto> tickers = new Queue<TickerDto>();
-       private object syncLock = new object();
-       private const int MaxTrades = 50;
+        private readonly Queue<TickerDto> _tickers = new Queue<TickerDto>();
+        private readonly object _syncLock = new object();
+        private const int MaxTrades = 50;
 
+        public TickerRepository()
+        {
+            _tickers.Enqueue(new TickerDto() { Name = "Yahoo", Price = 1.2m });
+            _tickers.Enqueue(new TickerDto() { Name = "Google", Price = 1022m });
+            _tickers.Enqueue(new TickerDto() { Name = "Apple", Price = 523m });
+            _tickers.Enqueue(new TickerDto() { Name = "Facebook", Price = 49m });
+            _tickers.Enqueue(new TickerDto() { Name = "Microsoft", Price = 37m });
+            _tickers.Enqueue(new TickerDto() { Name = "Twitter", Price = 120m });
+        }
 
-       public TickerRepository()
-       {
-           tickers.Enqueue(new TickerDto() {Name="Yahoo", Price=1.2m});
-           tickers.Enqueue(new TickerDto() {Name="Google", Price=1022m});
-           tickers.Enqueue(new TickerDto() {Name="Apple", Price=523m});
-           tickers.Enqueue(new TickerDto() {Name="Facebook", Price=49m});
-           tickers.Enqueue(new TickerDto() {Name="Microsoft", Price=37m});
-           tickers.Enqueue(new TickerDto() {Name="Twitter", Price=120m});
-       }
-
-       public TickerDto GetNextTicker()
-       {
-           return tickers.Dequeue();
-       }
+        public TickerDto GetNextTicker()
+        {
+            return _tickers.Dequeue();
+        }
 
         public void StoreTicker(TickerDto tickerInfo)
         {
-            lock (syncLock)
+            lock (_syncLock)
             {
-                tickers.Enqueue(tickerInfo);
+                _tickers.Enqueue(tickerInfo);
 
-                if (tickers.Count > MaxTrades)
+                if (_tickers.Count > MaxTrades)
                 {
-                    tickers.Dequeue();
+                    _tickers.Dequeue();
                 }
             }
         }
@@ -46,13 +42,13 @@ namespace NetMQServer.Ticker
         {
             IList<TickerDto> newTickers;
 
-            lock (syncLock)
+            lock (_syncLock)
             {
-                newTickers = tickers.ToList();
+                newTickers = _tickers.ToList();
             }
 
             return newTickers;
-        } 
+        }
     }
 }
 

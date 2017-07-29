@@ -37,12 +37,7 @@ namespace Client
             //mainWindow.DataContext = vm;
             mainWindow.Show();
 
-
-
-
-            var netMQHeartClient = NetMQHeartBeatClient.CreateInstance(null, "ghhasa");
-
-
+            var netMQHeartClient = NetMQHeartBeatClient.CreateInstance("ghhasa");
         }
 
         private void InitializeLogging()

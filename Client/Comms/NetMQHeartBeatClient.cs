@@ -1,83 +1,77 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reactive.Linq;
-using System.Reactive.Subjects;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using Client.Factory;
-using Client.Comms.Transport;
+﻿using Client.Comms.Transport;
 using Common;
 using NetMQ;
-using NetMQ.Actors;
-using NetMQ.InProcActors;
 using NetMQ.Sockets;
-using NetMQ.zmq;
-using Newtonsoft.Json;
-using Poller = NetMQ.Poller;
+using System;
+using System.Reactive.Linq;
+using System.Reactive.Subjects;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Client.Comms
 {
-    public class NetMQHeartBeatClient 
+    public class NetMQHeartBeatClient
     {
-        private readonly NetMQContext context;
+        //private readonly NetMQContext context;
         private readonly string address;
-        private Actor<object> actor;
+        //private Actor<object> actor;
+        private NetMQActor actor;
         private Subject<ConnectionInfo> subject;
         private static NetMQHeartBeatClient instance = null;
         private static object syncLock = new object();
         protected int requiresInitialisation = 1;
 
-        class ShimHandler : IShimHandler<object>
+        class ShimHandler : IShimHandler
         {
-            private NetMQContext context;
+            //private NetMQContext context;
             private SubscriberSocket subscriberSocket;
             private Subject<ConnectionInfo> subject;
             private string address;
-            private Poller poller;
+            private NetMQPoller poller;
             private NetMQTimer timeoutTimer;
             private NetMQHeartBeatClient parent;
 
-            public ShimHandler(NetMQContext context, Subject<ConnectionInfo> subject, string address)
+            public ShimHandler(object parent, Subject<ConnectionInfo> subject, string address)
             {
-                this.context = context;
                 this.address = address;
                 this.subject = subject;
+                // 原專案中忘了呼叫此函式
+                Initialise(parent);
             }
 
             public void Initialise(object state)
             {
-                parent = (NetMQHeartBeatClient) state;
+                parent = (NetMQHeartBeatClient)state;
             }
 
-            public void RunPipeline(PairSocket shim)
+            public void Run(PairSocket shim)
             {
                 // we should signal before running the poller but this will block the application
                 shim.SignalOK();
 
-                this.poller = new Poller();
+                this.poller = new NetMQPoller();
 
                 shim.ReceiveReady += OnShimReady;
-                poller.AddSocket(shim);
+                poller.Add(shim);
 
                 timeoutTimer = new NetMQTimer(StreamingProtocol.Timeout);
                 timeoutTimer.Elapsed += TimeoutElapsed;
-                poller.AddTimer(timeoutTimer);
+                poller.Add(timeoutTimer);
 
                 Connect();
 
-                poller.Start();
+                poller.Run();
 
                 if (subscriberSocket != null)
                 {
                     subscriberSocket.Dispose();
-                }                
+                }
             }
 
             private void Connect()
             {
-                subscriberSocket = context.CreateSubscriberSocket();
+                //subscriberSocket = context.CreateSubscriberSocket();
+                subscriberSocket = new SubscriberSocket();
                 subscriberSocket.Subscribe(StreamingProtocol.HeartbeatTopic);
                 subscriberSocket.Connect(string.Format("tcp://{0}:{1}", address, StreamingProtocol.Port));
 
@@ -86,7 +80,7 @@ namespace Client.Comms
 
                 subscriberSocket.ReceiveReady += OnSubscriberReady;
 
-                poller.AddSocket(subscriberSocket);
+                poller.Add(subscriberSocket);
 
 
 
@@ -98,7 +92,7 @@ namespace Client.Comms
             private void TimeoutElapsed(object sender, NetMQTimerEventArgs e)
             {
                 // no need to reconnect, the client would be recreated because of RX
-                
+
                 // because of RX internal stuff invoking on the poller thread block the entire application, so calling on Thread Pool
                 Task.Run(() =>
                 {
@@ -109,17 +103,18 @@ namespace Client.Comms
 
             private void OnShimReady(object sender, NetMQSocketEventArgs e)
             {
-                string command = e.Socket.ReceiveString();
+                string command = e.Socket.ReceiveFrameString();
 
-                if (command == ActorKnownMessages.END_PIPE)
+                //if (command == ActorKnownMessages.END_PIPE)
+                if (command == NetMQActor.EndShimMessage)
                 {
-                    poller.Stop(false);
+                    poller.Stop();
                 }
             }
 
             private void OnSubscriberReady(object sender, NetMQSocketEventArgs e)
             {
-                string topic = subscriberSocket.ReceiveString();
+                string topic = subscriberSocket.ReceiveFrameString();
 
                 if (topic == StreamingProtocol.HeartbeatTopic)
                 {
@@ -137,16 +132,16 @@ namespace Client.Comms
 
 
 
- 
 
-        private NetMQHeartBeatClient(NetMQContext context, string address)
+
+        private NetMQHeartBeatClient(string address)
         {
-            this.context = context;
+            //this.context = context;
             this.address = address;
             InitialiseComms();
         }
 
-        public static NetMQHeartBeatClient CreateInstance(NetMQContext context, string address)
+        public static NetMQHeartBeatClient CreateInstance(string address)
         {
             if (instance == null)
             {
@@ -154,7 +149,7 @@ namespace Client.Comms
                 {
                     if (instance == null)
                     {
-                        instance = new NetMQHeartBeatClient(context,address);
+                        instance = new NetMQHeartBeatClient(address);
                     }
                 }
             }
@@ -172,7 +167,8 @@ namespace Client.Comms
                 }
 
                 subject = new Subject<ConnectionInfo>();
-                this.actor = new Actor<object>(context, new ShimHandler(context, subject, address), this);
+                //this.actor = new Actor<object>(context, new ShimHandler(context, subject, address), this);
+                actor = NetMQActor.Create(new ShimHandler(this, subject, address));
             }
 
 
@@ -191,8 +187,8 @@ namespace Client.Comms
         }
 
 
-        
-        
- 
+
+
+
     }
 }

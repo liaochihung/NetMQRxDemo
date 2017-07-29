@@ -1,58 +1,52 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using Client.Factory;
+using Client.Repositories;
+using Client.Services;
+using log4net;
+using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reactive.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Input;
-using Client.Factory;
-using Client.Repositories;
-using Client.Services;
-using Common;
-using Common.ViewModels;
-using log4net;
 
 
 namespace Client.ViewModels
 {
     public class TickersViewModel : INPCBase
     {
-        private readonly ITickerRepository tickerRepository;
-        private readonly IConcurrencyService concurrencyService;
-        private bool stale = false;
-        private static readonly ILog log = LogManager.GetLogger(typeof(TickersViewModel));
+        private readonly ITickerRepository _tickerRepository;
+        private readonly IConcurrencyService _concurrencyService;
+        private bool _stale = false;
+        private static readonly ILog Log = LogManager.GetLogger(typeof(TickersViewModel));
 
         public TickersViewModel(IReactiveTrader reactiveTrader,
                                 IConcurrencyService concurrencyService,
-            TickerViewModelFactory tickerViewModelFactory)
+                                TickerViewModelFactory tickerViewModelFactory)
         {
             Tickers = new ObservableCollection<TickerViewModel>();
+
             Tickers.Add(tickerViewModelFactory.Create("Yahoo"));
             Tickers.Add(tickerViewModelFactory.Create("Google"));
             Tickers.Add(tickerViewModelFactory.Create("Apple"));
             Tickers.Add(tickerViewModelFactory.Create("Facebook"));
             Tickers.Add(tickerViewModelFactory.Create("Microsoft"));
             Tickers.Add(tickerViewModelFactory.Create("Twitter"));
-            this.tickerRepository = reactiveTrader.TickerRepository;
-            this.concurrencyService = concurrencyService;
+
+            _tickerRepository = reactiveTrader.TickerRepository;
+            _concurrencyService = concurrencyService;
+            //_stale = stale;
+
             LoadTrades();
-
-
-
         }
-
 
         public ObservableCollection<TickerViewModel> Tickers { get; private set; }
 
         private void LoadTrades()
         {
-            tickerRepository.GetTickerStream()
-                            .ObserveOn(concurrencyService.Dispatcher)
-                            .SubscribeOn(concurrencyService.TaskPool)
+            _tickerRepository.GetTickerStream()
+                            .ObserveOn(_concurrencyService.Dispatcher)
+                            .SubscribeOn(_concurrencyService.TaskPool)
                             .Subscribe(
                                 AddTicker,
-                                ex => log.Error("An error occurred within the trade stream", ex));
+                                ex => Log.Error("An error occurred within the trade stream", ex));
         }
 
         private void AddTicker(Ticker ticker)
@@ -81,7 +75,6 @@ namespace Client.ViewModels
                  .AcceptNewPrice(ticker.Price);
         }
 
-
         private void UpdateTickerViewModelsStaleState(bool stale)
         {
             foreach (var tickerViewModel in Tickers)
@@ -89,8 +82,5 @@ namespace Client.ViewModels
                 tickerViewModel.Stale = stale;
             }
         }
-
-
-
     }
 }

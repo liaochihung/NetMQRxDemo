@@ -1,29 +1,23 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Client.Services;
+﻿using Client.Services;
 
 namespace Client.ViewModels
 {
     public class TickerViewModelFactory
     {
-        private readonly IReactiveTrader reactiveTrader;
-        private readonly IConcurrencyService concurrencyService;
-
+        private readonly IReactiveTrader _reactiveTrader;
+        private readonly IConcurrencyService _concurrencyService;
 
         public TickerViewModelFactory(
             IReactiveTrader reactiveTrader,
             IConcurrencyService concurrencyService)
         {
-            this.reactiveTrader = reactiveTrader;
-            this.concurrencyService = concurrencyService;
+            _reactiveTrader = reactiveTrader;
+            _concurrencyService = concurrencyService;
         }
 
         public TickerViewModel Create(string name)
         {
-            return new TickerViewModel(reactiveTrader, concurrencyService, name);
+            return new TickerViewModel(_reactiveTrader, _concurrencyService, name);
         }
     }
 }

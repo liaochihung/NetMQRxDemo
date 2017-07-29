@@ -1,39 +1,29 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reactive.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Client.Comms.Transport;
+﻿using Client.Comms.Transport;
 using Client.Services;
 using log4net;
+using System;
+using System.Reactive.Linq;
 
 namespace Client.ViewModels
 {
     public class ConnectivityStatusViewModel : INPCBase
     {
-        private static readonly ILog log = LogManager.GetLogger(typeof(ConnectivityStatusViewModel));
-        private string server;
-        private string status;
-        private bool disconnected;
-
-
+        private static readonly ILog Log = LogManager.GetLogger(typeof(ConnectivityStatusViewModel));
+        private string _server;
+        private string _status;
+        private bool _disconnected;
 
         public ConnectivityStatusViewModel(
             IReactiveTrader reactiveTrader,
             IConcurrencyService concurrencyService)
         {
-
-          
             reactiveTrader.ConnectionStatusStream
                 .ObserveOn(concurrencyService.Dispatcher)
                 .SubscribeOn(concurrencyService.TaskPool)
                 .Subscribe(
                 OnStatusChange,
-                ex => log.Error("An error occurred within the connection status stream.", ex));
-
+                ex => Log.Error("An error occurred within the connection status stream.", ex));
         }
-
 
         private void OnStatusChange(ConnectionInfo connectionInfo)
         {
@@ -58,29 +48,22 @@ namespace Client.ViewModels
             }
         }
 
-
         public string Server
         {
-            get { return this.server; }
+            get { return this._server; }
             set
             {
-                this.server = value;
+                this._server = value;
                 base.OnPropertyChanged("Server");
             }
         }
 
-
-
-
-
-
-
         public string Status
         {
-            get { return this.status; }
+            get { return this._status; }
             set
             {
-                this.status = value;
+                this._status = value;
                 base.OnPropertyChanged("Status");
             }
         }
@@ -89,14 +72,14 @@ namespace Client.ViewModels
 
         public bool Disconnected
         {
-            get { return this.disconnected; }
+            get { return this._disconnected; }
             set
             {
-                this.disconnected = value;
+                this._disconnected = value;
                 base.OnPropertyChanged("Disconnected");
             }
         }
-      
+
     }
 
 }
